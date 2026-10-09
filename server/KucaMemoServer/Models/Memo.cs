@@ -34,6 +34,13 @@ public class Memo
     /// <summary>요청한 기기(X-Device-Id)가 좋아요를 눌렀는지. 헤더가 없으면 false.</summary>
     public bool LikedByMe { get; set; }
 
+    /// <summary>"visible"(모두에게 보임) 또는 "pending"(검토 대기, 작성 기기에만 보임)</summary>
+    public string Status { get; set; } = ContentStatus.Visible;
+
+    /// <summary>검토 대기로 둔 이유 (관리자 API 에서만 채운다, 그 밖에는 응답에서 빠짐)</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? FlagNote { get; set; }
+
     /// <summary>작성한 기기 ID. 삭제 권한 확인용으로 서버에만 저장하고 API 응답에는 내보내지 않는다.</summary>
     [JsonIgnore]
     public string DeviceId { get; set; } = "";

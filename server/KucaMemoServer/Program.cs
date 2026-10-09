@@ -18,6 +18,10 @@ builder.Services.AddSingleton<BuildingStore>();
 builder.Services.AddSingleton<MemoStore>();
 builder.Services.AddSingleton<PhotoStore>();
 
+// 쪽지·댓글 내용 검사 (AI: FactChat 게이트웨이, 키가 없거나 장애면 금지어 검사로 대체)
+// 설정: Ai:ApiKey (저장소에 넣지 않음 - Azure 앱 설정 Ai__ApiKey / 로컬 dotnet user-secrets), Ai:FilterModel 등
+builder.Services.AddHttpClient<IContentModerator, AiModerator>();
+
 // 메모 작성 본문 크기 제한: 사진 10MB + 글자 여유분
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = PhotoStore.MaxBytes + 1024 * 1024);
 
@@ -43,6 +47,7 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }))
 app.MapBuildingEndpoints();
 app.MapMemoEndpoints();
 app.MapReactionEndpoints();
+app.MapAdminEndpoints();
 app.MapWebPages();
 
 app.Run();

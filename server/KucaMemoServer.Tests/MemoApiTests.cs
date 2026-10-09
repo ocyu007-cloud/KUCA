@@ -4,17 +4,25 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using KucaMemoServer.Services;
 
 namespace KucaMemoServer.Tests;
 
 /// <summary>
 /// 테스트마다 임시 폴더(DB 파일, wwwroot)를 쓰는 서버를 띄운다.
+/// 내용 검사는 실제 AI 대신 FakeModerator 를 쓴다 (기본은 금지어 검사, 테스트가 결과를 정할 수 있음).
 /// </summary>
 public sealed class TestServer : WebApplicationFactory<Program>
 {
+    public const string AdminKey = "test-admin-key";
+
     public string Root { get; } = Path.Combine(Path.GetTempPath(), "kuca-test-" + Guid.NewGuid().ToString("N"));
     public string PhotosDir => Path.Combine(Root, "wwwroot", "photos");
+    public FakeModerator Moderator { get; } = new();
 
     public TestServer() => Directory.CreateDirectory(Path.Combine(Root, "wwwroot"));
 
@@ -22,6 +30,12 @@ public sealed class TestServer : WebApplicationFactory<Program>
     {
         builder.UseSetting("Memos:DatabasePath", Path.Combine(Root, "memos.db"));
         builder.UseSetting(WebHostDefaults.WebRootKey, Path.Combine(Root, "wwwroot"));
+        builder.UseSetting("Admin:Key", AdminKey);
+        builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IContentModerator>();
+            services.AddSingleton<IContentModerator>(Moderator);
+        });
     }
 
     protected override void Dispose(bool disposing)
@@ -95,7 +109,9 @@ public class MemoApiTests : IDisposable
         Assert.Equal(0, memo.GetProperty("likeCount").GetInt32());
         Assert.Equal(0, memo.GetProperty("commentCount").GetInt32());
         Assert.False(memo.GetProperty("likedByMe").GetBoolean());
-        Assert.Equal(9, memo.EnumerateObject().Count());
+        Assert.Equal("visible", memo.GetProperty("status").GetString());
+        Assert.False(memo.TryGetProperty("flagNote", out _));
+        Assert.Equal(10, memo.EnumerateObject().Count());
     }
 
     [Fact]

@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- 로컬 비밀값(AI 키, 관리자 키) 보관용: dotnet user-secrets set "Ai:ApiKey" "..." -->
+    <UserSecretsId>kuca-memo-server</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

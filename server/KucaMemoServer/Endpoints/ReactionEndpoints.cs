@@ -34,9 +34,11 @@ public static class ReactionEndpoints
         var comments = app.MapGroup("/api").WithTags("Comments");
 
         // 메모의 댓글 목록 (오래된 순). ?limit=1~100 (기본 50), ?after=시각 이면 그보다 나중 댓글만.
-        comments.MapGet("/memos/{memoId}/comments", (string memoId, int? limit, string? after, MemoStore memos) =>
+        // X-Device-Id 를 보내면 그 기기가 쓴 검토 대기 댓글도 함께 나온다.
+        comments.MapGet("/memos/{memoId}/comments", (string memoId, int? limit, string? after, HttpRequest request, MemoStore memos) =>
         {
-            if (memos.Find(memoId) is null)
+            string? viewer = ViewerDeviceId(request);
+            if (memos.Find(memoId) is not { } memo || !IsVisibleTo(memo.Status, memo.DeviceId, viewer))
                 return MemoNotFound(memoId);
 
             DateTime? afterTime = null;
@@ -49,13 +51,15 @@ public static class ReactionEndpoints
             }
 
             int take = Math.Clamp(limit ?? DefaultCommentLimit, 1, MaxCommentLimit);
-            return Results.Ok(memos.ListComments(memoId, take, afterTime));
+            return Results.Ok(memos.ListComments(memoId, take, afterTime, viewer));
         });
 
-        // 댓글 작성. JSON 으로 author, text, deviceId 를 받는다.
-        comments.MapPost("/memos/{memoId}/comments", async (string memoId, HttpRequest request, MemoStore memos) =>
+        // 댓글 작성. JSON 으로 author, text, deviceId 를 받는다. 공개 메모에만 달 수 있다.
+        // 저장 전에 내용 검사: 거절이면 422, 애매하면 검토 대기(pending).
+        comments.MapPost("/memos/{memoId}/comments", async (string memoId, HttpRequest request, MemoStore memos,
+                                                            IContentModerator moderator) =>
         {
-            if (memos.Find(memoId) is null)
+            if (memos.Find(memoId) is not { Status: ContentStatus.Visible })
                 return MemoNotFound(memoId);
 
             if (!request.HasJsonContentType())
@@ -82,6 +86,10 @@ public static class ReactionEndpoints
             if (deviceId.Length is 0 or > MaxDeviceIdLength)
                 return Error(StatusCodes.Status400BadRequest, $"deviceId 는 1~{MaxDeviceIdLength}자여야 합니다");
 
+            ModerationResult check = await moderator.CheckAsync($"닉네임: {author}\n{text}", null, request.HttpContext.RequestAborted);
+            if (check.Verdict == Verdict.Block)
+                return Rejected(check);
+
             var comment = new Comment
             {
                 Id = Guid.NewGuid().ToString(),
@@ -90,8 +98,11 @@ public static class ReactionEndpoints
                 Text = text,
                 DeviceId = deviceId,
                 CreatedAt = TruncateToMilliseconds(DateTime.UtcNow),
+                Status = check.Verdict == Verdict.Review ? ContentStatus.Pending : ContentStatus.Visible,
+                FlagNote = check.Verdict == Verdict.Review ? DescribeFlag(check) : null,
             };
             memos.AddComment(comment);
+            comment.FlagNote = null; // 검토 메모는 관리자에게만 보인다
             return Results.Created($"/api/comments/{comment.Id}", comment);
         });
 
@@ -116,7 +127,8 @@ public static class ReactionEndpoints
         string deviceId = request.Headers["X-Device-Id"].ToString().Trim();
         if (deviceId.Length is 0 or > MaxDeviceIdLength)
             return Error(StatusCodes.Status400BadRequest, $"X-Device-Id 헤더(1~{MaxDeviceIdLength}자)가 필요합니다");
-        if (memos.Find(memoId) is null)
+        // 좋아요는 공개 메모에만
+        if (memos.Find(memoId) is not { Status: ContentStatus.Visible })
             return MemoNotFound(memoId);
 
         int count = memos.SetLike(memoId, deviceId, liked);

@@ -61,3 +61,16 @@ Content-Type: application/json
 ### (C-1) 댓글 삭제: 쓴 기기만 204, 다르면 403
 DELETE {{host}}/api/comments/여기에-댓글-id
 X-Device-Id: test-device-2
+
+### (C-2) 검토 대기 목록 (서버 설정 Admin:Key 와 같은 값)
+@adminKey = 여기에-관리자-키
+GET {{host}}/api/admin/pending
+X-Admin-Key: {{adminKey}}
+
+### (C-2) 검토 대기 메모 공개
+POST {{host}}/api/admin/memos/여기에-메모-id/approve
+X-Admin-Key: {{adminKey}}
+
+### (C-2) 검토 대기 메모 거절 (삭제)
+DELETE {{host}}/api/admin/memos/여기에-메모-id
+X-Admin-Key: {{adminKey}}

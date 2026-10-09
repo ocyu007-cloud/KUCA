@@ -161,7 +161,8 @@ public class ReactionApiTests : IDisposable
         Assert.Equal("저도 봤어요", comment.GetProperty("text").GetString());
         Assert.EndsWith("Z", comment.GetProperty("createdAt").GetString());
         Assert.False(comment.TryGetProperty("deviceId", out _));
-        Assert.Equal(5, comment.EnumerateObject().Count());
+        Assert.Equal("visible", comment.GetProperty("status").GetString());
+        Assert.Equal(6, comment.EnumerateObject().Count());
     }
 
     [Fact]
