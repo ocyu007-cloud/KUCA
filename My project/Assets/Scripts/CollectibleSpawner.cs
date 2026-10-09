@@ -27,9 +27,9 @@ public class CollectibleSpawner : MonoBehaviour
 
     public List<CollectibleType> types = new List<CollectibleType>
     {
-        new CollectibleType { id = "sprout", displayName = "새싹 조각", shape = PrimitiveType.Sphere, color = new Color(0.3f, 0.85f, 0.35f), points = 10, weight = 60f },
-        new CollectibleType { id = "crystal", displayName = "푸른 결정", shape = PrimitiveType.Cube, color = new Color(0.2f, 0.6f, 1f), points = 30, weight = 30f },
-        new CollectibleType { id = "star", displayName = "황금 별", shape = PrimitiveType.Cylinder, color = new Color(1f, 0.8f, 0.15f), points = 100, weight = 10f },
+        new CollectibleType { id = "sprout", points = 10, weight = 60f },   // 초록 동물
+        new CollectibleType { id = "crystal", points = 30, weight = 30f },  // 파랑 동물
+        new CollectibleType { id = "star", points = 100, weight = 10f },    // 황금 동물 (랜드마크 근처에서만)
     };
 
     public IReadOnlyList<Collectible> Active => active;
@@ -37,7 +37,6 @@ public class CollectibleSpawner : MonoBehaviour
     public CollectibleType TypeOf(string id) => types.Find(t => t.id == id);
 
     readonly List<Collectible> active = new List<Collectible>();
-    readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
     float refillTimer;
     bool initialFillDone;
 
@@ -109,7 +108,10 @@ public class CollectibleSpawner : MonoBehaviour
             else
                 type = types.Find(t => t.id == "crystal") ?? type;
         }
-        active.Add(Collectible.Create(type, pos, GetMaterial(type), transform, species));
+        Collectible c = Collectible.Create(type, pos, transform, species);
+        if (c == null)
+            return false; // 동물 모델이 없으면 내보내지 않는다
+        active.Add(c);
         return true;
     }
 
@@ -143,20 +145,6 @@ public class CollectibleSpawner : MonoBehaviour
             if (r <= 0f) return t;
         }
         return types[types.Count - 1];
-    }
-
-    /// <summary>종류별 머티리얼 (지도 위 대상, 도감 썸네일, 파트너가 함께 쓴다)</summary>
-    public Material GetMaterial(CollectibleType type)
-    {
-        if (materials.TryGetValue(type.id, out Material m))
-            return m;
-        Shader lit = Shader.Find("Universal Render Pipeline/Lit");
-        m = new Material(lit != null ? lit : Shader.Find("Standard"));
-        m.SetColor("_BaseColor", type.color);
-        m.EnableKeyword("_EMISSION");
-        m.SetColor("_EmissionColor", type.color * 0.5f);
-        materials[type.id] = m;
-        return m;
     }
 
     public static float HorizontalDistance(Vector3 a, Vector3 b)

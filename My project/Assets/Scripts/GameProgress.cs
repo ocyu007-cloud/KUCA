@@ -154,8 +154,8 @@ public class GameProgress
     }
 
     /// <summary>
-    /// 예전 저장 파일은 종류별 개수만 있으므로, 모자란 만큼 경희몬을 채워 넣는다
-    /// (CP 는 순서로 정해지는 값이라 매번 같다).
+    /// 예전 저장 파일 맞추기: 종류별 개수만 있으면 모자란 만큼 경희몬을 채워 넣고 (CP 는 순서로 정해지는 값이라 매번 같다),
+    /// 동물 기록이 없는 경희몬에는 동물을 정해 준다.
     /// </summary>
     void Migrate()
     {
@@ -179,6 +179,17 @@ public class GameProgress
                     caughtAt = DateTime.Now.AddMinutes(-(e.count - i) * 7).Ticks,
                 });
             }
+        }
+
+        // 동물 피규어가 들어오기 전에 잡은 경희몬은 어떤 동물인지 기록이 없다.
+        // 등급에 맞는 동물을 uid 로 하나 정해(늘 같은 결과) 도감에도 올린다.
+        foreach (Caught c in caught)
+        {
+            if (!string.IsNullOrEmpty(c.speciesId))
+                continue;
+            c.speciesId = CreatureLibrary.StableSpecies(c.typeId, c.uid) ?? "";
+            if (c.speciesId.Length > 0)
+                AddSpecies(c.speciesId);
         }
     }
 

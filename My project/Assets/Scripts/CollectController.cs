@@ -163,7 +163,7 @@ public class CollectController : MonoBehaviour
             Progress.AddSpecies(speciesId);
         }
         Progress.Save();
-        string name = speciesId != null ? CreatureLibrary.NameOf(speciesId) : type.displayName;
+        string name = CreatureLibrary.NameOf(speciesId);
         hud?.Toast($"{name} 획득!  쿠옹력 {caught.cp}  ·  +{type.points} XP");
         hud?.ShowProgress(Progress, spawner.types);
         if (target != null)

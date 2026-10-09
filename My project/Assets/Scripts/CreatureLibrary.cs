@@ -144,6 +144,67 @@ public static class CreatureLibrary
 
     public static string NameOf(string id) => id != null && Names.TryGetValue(id, out string n) ? n : id;
 
+    /// <summary>도감 순서의 등급 id (초록 → 파랑 → 황금)</summary>
+    public static readonly string[] Tiers = { "sprout", "crystal", "star" };
+
+    /// <summary>등급 색 (UI 강조)</summary>
+    public static Color TierColor(string tierId) =>
+        tierId == "star" ? new Color(0.96f, 0.76f, 0.25f) :
+        tierId == "crystal" ? new Color(0.30f, 0.60f, 0.98f) : new Color(0.33f, 0.80f, 0.42f);
+
+    public static string TierLabel(string tierId) => tierId != null && TierLabels.TryGetValue(tierId, out string l) ? l : tierId;
+
+    /// <summary>그 등급에서 나오는 동물 (황금은 랜드마크마다 한 마리)</summary>
+    public static IReadOnlyList<string> SpeciesOfTier(string tierId)
+    {
+        if (tierId == "star")
+        {
+            var list = new List<string>();
+            foreach (var z in goldZones)
+                list.Add(z.species);
+            return list;
+        }
+        return TierSpecies.TryGetValue(tierId, out string[] arr) ? arr : (IReadOnlyList<string>)System.Array.Empty<string>();
+    }
+
+    /// <summary>도감 전체 (초록 → 파랑 → 황금 순). 도감 번호 = 이 순서 + 1</summary>
+    public static IReadOnlyList<string> AllSpecies
+    {
+        get
+        {
+            if (allSpecies == null)
+            {
+                allSpecies = new List<string>();
+                foreach (string t in Tiers)
+                    allSpecies.AddRange(SpeciesOfTier(t));
+            }
+            return allSpecies;
+        }
+    }
+    static List<string> allSpecies;
+
+    /// <summary>동물이 속한 등급 id (모르면 null)</summary>
+    public static string TierOf(string species)
+    {
+        foreach (string t in Tiers)
+            foreach (string id in SpeciesOfTier(t))
+                if (id == species)
+                    return t;
+        return null;
+    }
+
+    /// <summary>예전 저장(동물 기록 없음)을 위해, key 로 늘 같은 동물을 그 등급에서 고른다.</summary>
+    public static string StableSpecies(string tierId, string key)
+    {
+        IReadOnlyList<string> list = SpeciesOfTier(tierId);
+        if (list.Count == 0)
+            return null;
+        int h = 17;
+        foreach (char ch in key ?? "")
+            h = h * 31 + ch;
+        return list[(h & int.MaxValue) % list.Count];
+    }
+
     /// <summary>등급에서 동물 하나를 고른다. 모델이 없으면 null</summary>
     public static string PickSpecies(string tierId)
     {

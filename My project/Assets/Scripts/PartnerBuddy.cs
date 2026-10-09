@@ -1,46 +1,57 @@
 using UnityEngine;
 
 /// <summary>
-/// 파트너 경희몬. 지도에서는 캐릭터 옆에서 둥실둥실 따라다니고,
-/// 프로필 화면에서는 캐릭터 옆 정해진 자리에 선다 (캐릭터 레이어라 프로필 카메라에 함께 찍힌다).
+/// 파트너 동물 피규어(CreatureLibrary). 지도에서는 캐릭터 옆에서 통통 뛰며 따라다니고,
+/// 프로필 화면에서는 캐릭터 옆 바닥에 선다 (캐릭터 레이어라 프로필 카메라에 함께 찍힌다).
 /// </summary>
 public class PartnerBuddy : MonoBehaviour
 {
     public Transform character;
-    [Tooltip("캐릭터 로컬 단위 크기 (키 약 1.7)")]
-    public float size = 0.5f;
+    [Tooltip("피규어 키 (받침 포함, 캐릭터 로컬 단위. 캐릭터 키는 약 1.7)")]
+    public float height = 0.75f;
     public float followSpeed = 4f;
 
     /// <summary>true 면 프로필 화면 자리에 선다</summary>
     public bool profilePose;
 
-    string typeId;
-    Transform visual;
+    string speciesId;
+    Transform visual;    // 발밑이 피벗인 피규어
     float phase;
 
-    public void Show(CollectibleType type, Material material)
+    public void Show(string species)
     {
-        if (type == null)
+        if (string.IsNullOrEmpty(species) || !CreatureLibrary.TryGetMesh(species, out Mesh mesh))
         {
             Hide();
             return;
         }
-        if (visual != null && typeId == type.id)
-        {
-            visual.gameObject.SetActive(true);
+        if (visual != null && speciesId == species)
             return;
-        }
         Hide();
-        typeId = type.id;
-        GameObject shape = GameObject.CreatePrimitive(type.shape);
-        shape.name = "Partner_" + type.id;
-        Destroy(shape.GetComponent<Collider>());
-        shape.transform.SetParent(transform, false);
-        shape.GetComponent<Renderer>().sharedMaterial = material;
-        shape.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        if (character != null)
-            shape.layer = character.gameObject.layer;
-        visual = shape.transform;
+        speciesId = species;
+
+        int layer = character != null ? character.gameObject.layer : 0;
+        var pivot = new GameObject("Partner_" + species).transform;
+        pivot.SetParent(transform, false);
+        Bounds b = mesh.bounds;
+        var body = new GameObject("Figure", typeof(MeshFilter), typeof(MeshRenderer));
+        body.layer = layer;
+        body.transform.SetParent(pivot, false);
+        // 피벗을 발밑(받침 바닥 가운데)으로 옮긴다.
+        body.transform.localPosition = new Vector3(-b.center.x, -b.min.y, -b.center.z);
+        body.GetComponent<MeshFilter>().sharedMesh = mesh;
+        body.GetComponent<MeshRenderer>().sharedMaterial = CreatureLibrary.Material;
+        if (CreatureLibrary.TryGetGlass(species, out Mesh glass) && CreatureLibrary.GlassMaterial != null)
+        {
+            var g = new GameObject("Glass", typeof(MeshFilter), typeof(MeshRenderer));
+            g.layer = layer;
+            g.transform.SetParent(body.transform, false);
+            g.GetComponent<MeshFilter>().sharedMesh = glass;
+            g.GetComponent<MeshRenderer>().sharedMaterial = CreatureLibrary.GlassMaterial;
+            g.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+        visual = pivot;
+        visual.localScale = Vector3.one * ScaleFor(mesh);
         SnapToTarget();
     }
 
@@ -49,7 +60,13 @@ public class PartnerBuddy : MonoBehaviour
         if (visual != null)
             Destroy(visual.gameObject);
         visual = null;
-        typeId = null;
+        speciesId = null;
+    }
+
+    float ScaleFor(Mesh mesh)
+    {
+        float charScale = character != null ? character.lossyScale.y : 1f;
+        return height * charScale / Mathf.Max(mesh.bounds.size.y, 1e-4f);
     }
 
     void LateUpdate()
@@ -61,25 +78,28 @@ public class PartnerBuddy : MonoBehaviour
         if (visual.gameObject.activeSelf != show)
             visual.gameObject.SetActive(show);
 
-        float scale = character.lossyScale.y;
         phase += Time.deltaTime;
-        float shapeScale = typeId == "star" ? 0.75f : 1f;
-        visual.localScale = Vector3.one * size * scale * shapeScale * (profilePose ? 0.8f : 1f);
+        Vector3 toChar = character.position - visual.position;
+        toChar.y = 0f;
         if (profilePose)
         {
+            // 프로필: 캐릭터 옆 바닥에 서서 카메라(캐릭터 정면) 쪽을 본다.
             visual.position = TargetPosition();
-            visual.rotation = character.rotation * Quaternion.Euler(15f, phase * 40f, 0f);
+            visual.rotation = character.rotation * Quaternion.Euler(0f, -18f + Mathf.Sin(phase * 1.2f) * 6f, 0f);
             return;
         }
+        // 지도: 캐릭터 뒤쪽 옆을 따라다니며 통통 뛰고, 캐릭터가 가는 쪽을 본다.
         visual.position = Vector3.Lerp(visual.position, TargetPosition(), 1f - Mathf.Exp(-followSpeed * Time.deltaTime));
-        visual.rotation = Quaternion.Euler(20f, phase * 60f, 0f);
+        if (toChar.sqrMagnitude > 1f)
+            visual.rotation = Quaternion.Slerp(visual.rotation, Quaternion.LookRotation(character.forward), 1f - Mathf.Exp(-6f * Time.deltaTime));
     }
 
     Vector3 TargetPosition()
     {
         if (profilePose)
-            return character.TransformPoint(-0.75f, 0.42f + Mathf.Sin(phase * 2f) * 0.04f, -0.25f);
-        return character.TransformPoint(-0.9f, 0.9f + Mathf.Sin(phase * 2.4f) * 0.12f, -0.5f);
+            return character.TransformPoint(-0.8f, 0f, -0.2f);
+        float hop = Mathf.Abs(Mathf.Sin(phase * 3.2f)) * 0.12f;
+        return character.TransformPoint(-0.85f, hop, -0.45f);
     }
 
     void SnapToTarget()

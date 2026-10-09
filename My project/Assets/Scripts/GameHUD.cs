@@ -76,7 +76,7 @@ public class GameHUD : MonoBehaviour
     Text noticeTitle;
     GameObject noticeBadge;
     Text noticeBadgeText;
-    readonly List<Image> nearbyIcons = new List<Image>();
+    readonly List<RawImage> nearbyIcons = new List<RawImage>();
     float nearbyTimer;
 
     // 전체 화면
@@ -515,8 +515,12 @@ public class GameHUD : MonoBehaviour
             sr.anchorMin = sr.anchorMax = sr.pivot = new Vector2(0f, 1f);
             sr.anchoredPosition = new Vector2(pad - 3f + col * (cell + gap), -(pad - 3f) - row * (cell + gap));
             sr.sizeDelta = new Vector2(cell, cell);
-            Image icon = UIKit.Image(slot.transform, "Icon", Color.white);
+            // 동물 피규어 썸네일 (칸보다 살짝 크게 그려 피규어가 꽉 차 보이게)
+            var icon = new GameObject("Icon", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
+            icon.transform.SetParent(slot.transform, false);
+            icon.raycastTarget = false;
             Place(icon.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero);
+            icon.rectTransform.sizeDelta = new Vector2(cell * 1.05f, cell * 1.05f);
             icon.gameObject.SetActive(false);
             nearbyIcons.Add(icon);
         }
@@ -548,11 +552,10 @@ public class GameHUD : MonoBehaviour
         }
         for (int i = 0; i < nearbyIcons.Count; i++)
         {
-            Image icon = nearbyIcons[i];
-            bool has = i < nearbyBuffer.Count;
-            icon.gameObject.SetActive(has);
-            if (has)
-                StyleShape(icon, nearbyBuffer[i].Type.shape, nearbyBuffer[i].Type.color, 48f);
+            RawImage icon = nearbyIcons[i];
+            Texture tex = i < nearbyBuffer.Count ? MonsterThumbnails.Get(nearbyBuffer[i].SpeciesId) : null;
+            icon.gameObject.SetActive(tex != null);
+            icon.texture = tex;
         }
     }
 
@@ -560,12 +563,12 @@ public class GameHUD : MonoBehaviour
     {
         if (nearbyBuffer.Count == 0)
         {
-            Toast($"{nearbyRadius:F0}m 안에 수집 대상이 없어요");
+            Toast($"{nearbyRadius:F0}m 안에 경희몬이 없어요");
             return;
         }
         Collectible c = nearbyBuffer[0];
         float d = CollectibleSpawner.HorizontalDistance(c.transform.position, collect.campusMap.player.position);
-        Toast($"주변 {nearbyBuffer.Count}개 · 가장 가까운 {c.Type.displayName} {d:F0}m");
+        Toast($"주변 {nearbyBuffer.Count}개 · 가장 가까운 {c.DisplayName} {d:F0}m");
     }
 
     void BuildPortraitCamera()
@@ -909,25 +912,6 @@ public class GameHUD : MonoBehaviour
         img.sprite = HudIcons.Circle;
         img.rectTransform.sizeDelta = new Vector2(size, size);
         return img;
-    }
-
-    /// <summary>수집 대상 모양을 닮게 꾸민다 (구=원, 상자=둥근 사각, 그 밖=마름모)</summary>
-    static void StyleShape(Image img, PrimitiveType shape, Color color, float size)
-    {
-        img.color = color;
-        if (shape == PrimitiveType.Sphere || shape == PrimitiveType.Capsule)
-        {
-            img.sprite = HudIcons.Circle;
-            img.type = Image.Type.Simple;
-            img.rectTransform.sizeDelta = new Vector2(size, size);
-            img.rectTransform.localRotation = Quaternion.identity;
-            return;
-        }
-        img.sprite = HudIcons.Rounded;
-        img.type = Image.Type.Sliced;
-        float s = shape == PrimitiveType.Cube ? size * 0.85f : size * 0.72f;
-        img.rectTransform.sizeDelta = new Vector2(s, s);
-        img.rectTransform.localRotation = shape == PrimitiveType.Cube ? Quaternion.identity : Quaternion.Euler(0f, 0f, 45f);
     }
 
     static void Place(RectTransform rt, Vector2 anchor, Vector2 pos)

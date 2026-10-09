@@ -362,14 +362,9 @@ public class KhuMenus : MonoBehaviour
         // 그리드
         RectTransform area = UIKit.Rect(inner, "Grid");
         UIKit.StretchBetween(area, 0f, 346f);
+        // 내용: 등급별 구역(제목 + 3열 그리드)을 세로로 쌓는다. 경희몬·도구 탭은 제목 없는 구역 하나.
         grid = ScrollContent(area, out gridScroll);
-        var g = grid.gameObject.AddComponent<GridLayoutGroup>();
-        g.cellSize = new Vector2(310f, 350f);
-        g.spacing = new Vector2(16f, 18f);
-        g.padding = new RectOffset(20, 20, 10, 280);
-        g.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-        g.constraintCount = 3;
-        g.childAlignment = TextAnchor.UpperCenter;
+        UIKit.Vertical(grid, 8f, new RectOffset(0, 0, 4, 280));
 
         emptyText = T(area, "", 38, TextAnchor.MiddleCenter, Gray);
         UIKit.Stretch(emptyText.rectTransform, 80f, 200f);
@@ -418,12 +413,12 @@ public class KhuMenus : MonoBehaviour
             return;
         string q = search != null ? search.text.Trim() : "";
 
+        IReadOnlyList<string> all = CreatureLibrary.AllSpecies;
         int found = 0;
-        if (types != null)
-            foreach (var t in types)
-                if (progress.CountOf(t.id) > 0)
-                    found++;
-        tabCounts[0].text = $"{found} / {(types != null ? types.Count : 0)}";
+        foreach (string id in all)
+            if (progress.SpeciesCountOf(id) > 0)
+                found++;
+        tabCounts[0].text = $"{found} / {all.Count}";
         tabCounts[1].text = $"{progress.caught.Count} / {MonsterStorage}";
         tabCounts[2].text = $"{progress.TotalItems} / {ItemStorage}";
 
@@ -431,32 +426,46 @@ public class KhuMenus : MonoBehaviour
         switch (tab)
         {
             case Tab.Dex:
-                if (types != null)
-                    for (int i = 0; i < types.Count; i++)
+                // 초록 → 파랑 → 황금 구역. 번호는 도감 전체 순서, 못 만난 동물은 그림자로.
+                foreach (string tier in CreatureLibrary.Tiers)
+                {
+                    IReadOnlyList<string> species = CreatureLibrary.SpeciesOfTier(tier);
+                    var visible = new List<string>();
+                    int tierFound = 0;
+                    foreach (string id in species)
                     {
-                        CollectibleType t = types[i];
-                        bool known = progress.CountOf(t.id) > 0;
-                        if (q.Length > 0 && !(known && t.displayName.Contains(q)))
-                            continue;
-                        DexCell(i + 1, t, known);
+                        bool known = progress.SpeciesCountOf(id) > 0;
+                        if (known) tierFound++;
+                        if (q.Length == 0 || (known && CreatureLibrary.NameOf(id).Contains(q)))
+                            visible.Add(id);
+                    }
+                    if (visible.Count == 0)
+                        continue;
+                    RectTransform section = Section(CreatureLibrary.TierLabel(tier), CreatureLibrary.TierColor(tier),
+                        $"{tierFound} / {species.Count} 발견");
+                    foreach (string id in visible)
+                    {
+                        DexCell(section, IndexOf(all, id) + 1, id, progress.SpeciesCountOf(id) > 0);
                         shown++;
                     }
+                }
                 emptyText.text = shown == 0 ? "검색 결과가 없어요" : "";
                 break;
 
             case Tab.Monsters:
                 var list = new List<GameProgress.Caught>(progress.caught);
-                if (sortMode == 0) list.Sort((a, b) => b.caughtAt.CompareTo(a.caughtAt));
-                else if (sortMode == 1) list.Sort((a, b) => b.cp.CompareTo(a.cp));
-                else list.Sort((a, b) => string.CompareOrdinal(NameOf(a), NameOf(b)));
+                if (sortMode == 0) list.Sort((x, y) => y.caughtAt.CompareTo(x.caughtAt));
+                else if (sortMode == 1) list.Sort((x, y) => y.cp.CompareTo(x.cp));
+                else list.Sort((x, y) => string.CompareOrdinal(NameOf(x), NameOf(y)));
                 // 파트너는 항상 맨 앞
                 int pi = list.FindIndex(c => c.uid == progress.partnerUid);
                 if (pi > 0) { var pc = list[pi]; list.RemoveAt(pi); list.Insert(0, pc); }
+                RectTransform mons = Section(null, Color.clear, null);
                 foreach (var c in list)
                 {
                     if (q.Length > 0 && !NameOf(c).Contains(q))
                         continue;
-                    MonsterCell(c);
+                    MonsterCell(mons, c);
                     shown++;
                 }
                 emptyText.text = shown > 0 ? "" : q.Length > 0 ? "검색 결과가 없어요"
@@ -464,12 +473,13 @@ public class KhuMenus : MonoBehaviour
                 break;
 
             case Tab.Items:
+                RectTransform items = Section(null, Color.clear, null);
                 foreach (var item in ItemCatalog.All)
                 {
                     int n = progress.ItemCount(item.id);
                     if (n <= 0 || (q.Length > 0 && !item.name.Contains(q)))
                         continue;
-                    ItemCell(item, n);
+                    ItemCell(items, item, n);
                     shown++;
                 }
                 emptyText.text = shown > 0 ? "" : q.Length > 0 ? "검색 결과가 없어요" : "가방이 비어 있어요\n레벨을 올리면 도구를 받아요";
@@ -477,18 +487,54 @@ public class KhuMenus : MonoBehaviour
         }
     }
 
-    void MonsterCell(GameProgress.Caught c)
+    static int IndexOf(IReadOnlyList<string> list, string id)
     {
-        CollectibleType t = TypeOf(c.typeId);
-        Button b = InvisibleButton(grid, c.uid, () => OpenDetail(c), Vector2.zero);
+        for (int i = 0; i < list.Count; i++)
+            if (list[i] == id)
+                return i;
+        return -1;
+    }
+
+    /// <summary>구역 하나 (title 이 있으면 색 점 + 제목 + 오른쪽 부제). 반환값이 칸을 넣을 3열 그리드.</summary>
+    RectTransform Section(string title, Color color, string sub)
+    {
+        if (title != null)
+        {
+            RectTransform head = UIKit.Rect(grid, "Header_" + title);
+            UIKit.Size(head, 92f);
+            Image dot = Circle(head, "Dot", color, 30f);
+            Place(dot.rectTransform, new Vector2(0f, 0.5f), new Vector2(52f, -6f));
+            Text t = T(head, title, 40, TextAnchor.MiddleLeft, TealDeep, bold: true);
+            SetBox(t.rectTransform, 98f, 0f, 1f, 300f);
+            t.rectTransform.offsetMin += new Vector2(0f, -12f);
+            Text s2 = T(head, sub ?? "", 32, TextAnchor.MiddleRight, Gray);
+            SetBox(s2.rectTransform, 0f, 0f, 1f, 52f);
+            s2.rectTransform.offsetMin = new Vector2(400f, -12f);
+        }
+        RectTransform section = UIKit.Rect(grid, "Grid_" + (title ?? "All"));
+        var g = section.gameObject.AddComponent<GridLayoutGroup>();
+        g.cellSize = new Vector2(310f, 350f);
+        g.spacing = new Vector2(16f, 18f);
+        g.padding = new RectOffset(20, 20, 6, 6);
+        g.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        g.constraintCount = 3;
+        g.childAlignment = TextAnchor.UpperCenter;
+        return section;
+    }
+
+    void MonsterCell(RectTransform parent, GameProgress.Caught c)
+    {
+        Button b = InvisibleButton(parent, c.uid, () => OpenDetail(c), Vector2.zero);
         Transform cell = b.transform;
 
         Text cp = T(cell, $"<size=30>쿠옹력</size> {c.cp}", 58, TextAnchor.MiddleCenter, Gray, bold: true);
         TopBox(cp.rectTransform, 0f, 74f);
-        Thumb(cell, t, true, 170f, new Vector2(0f, -170f));
-        Text name = T(cell, NameOf(c), 40, TextAnchor.MiddleCenter, Gray);
+        Thumb(cell, c.speciesId, true, 190f, new Vector2(0f, -172f));
+        Text name = T(cell, NameOf(c), 38, TextAnchor.MiddleCenter, Gray);
         BottomBox(name.rectTransform, 40f, 60f);
-        Image bar = UIKit.Image(cell, "Bar", Mint);
+        FitOneLine(name, 38);
+        // 막대 색 = 등급 (초록·파랑·황금)
+        Image bar = UIKit.Image(cell, "Bar", CreatureLibrary.TierColor(c.typeId));
         bar.sprite = HudIcons.Pill;
         bar.type = Image.Type.Sliced;
         bar.pixelsPerUnitMultiplier = 12f;
@@ -508,28 +554,31 @@ public class KhuMenus : MonoBehaviour
         }
     }
 
-    void DexCell(int number, CollectibleType t, bool known)
+    void DexCell(RectTransform parent, int number, string species, bool known)
     {
-        Button b = InvisibleButton(grid, t.id, () =>
+        string tier = CreatureLibrary.TierOf(species);
+        Button b = InvisibleButton(parent, species, () =>
         {
             if (known)
-                ShowList(t.displayName, DexRows(t));
+                ShowList(CreatureLibrary.NameOf(species), DexRows(species));
             else
-                hud?.Toast("아직 만나지 못한 경희몬이에요");
+                hud?.Toast(tier == "star" ? "아직 만나지 못한 황금 동물이에요. 캠퍼스 랜드마크 근처를 찾아보세요"
+                                          : "아직 만나지 못한 동물이에요");
         }, Vector2.zero);
         Transform cell = b.transform;
-        Text no = T(cell, $"No.{number:000}", 34, TextAnchor.MiddleCenter, Gray, bold: true);
-        TopBox(no.rectTransform, 10f, 60f);
-        Thumb(cell, t, known, 180f, new Vector2(0f, -165f));
-        Text name = T(cell, known ? t.displayName : "???", 40, TextAnchor.MiddleCenter, Gray);
-        BottomBox(name.rectTransform, 40f, 60f);
-        Text cnt = T(cell, known ? $"잡은 수 {progress.CountOf(t.id)}" : "", 28, TextAnchor.MiddleCenter, ValueGreen);
+        Text no = T(cell, $"No.{number:000}", 32, TextAnchor.MiddleCenter, Gray, bold: true);
+        TopBox(no.rectTransform, 8f, 56f);
+        Thumb(cell, species, known, 200f, new Vector2(0f, -170f));
+        Text name = T(cell, known ? CreatureLibrary.NameOf(species) : "???", 34, TextAnchor.MiddleCenter, Gray);
+        BottomBox(name.rectTransform, 40f, 56f);
+        FitOneLine(name, 34);
+        Text cnt = T(cell, known ? $"잡은 수 {progress.SpeciesCountOf(species)}" : "", 28, TextAnchor.MiddleCenter, ValueGreen);
         BottomBox(cnt.rectTransform, 6f, 36f);
     }
 
-    List<(string, string)> DexRows(CollectibleType t)
+    List<(string, string)> DexRows(string species)
     {
-        var mine = progress.caught.FindAll(c => c.typeId == t.id);
+        var mine = progress.caught.FindAll(c => c.speciesId == species);
         int best = 0;
         long first = long.MaxValue;
         foreach (var c in mine)
@@ -537,19 +586,26 @@ public class KhuMenus : MonoBehaviour
             best = Mathf.Max(best, c.cp);
             first = Math.Min(first, c.caughtAt);
         }
-        return new List<(string, string)>
+        string tier = CreatureLibrary.TierOf(species);
+        CollectibleType t = TypeOf(tier);
+        var rows = new List<(string, string)>
         {
-            ("잡은 수", $"{progress.CountOf(t.id)}마리"),
+            ("등급", CreatureLibrary.TierLabel(tier)),
+            ("잡은 수", $"{progress.SpeciesCountOf(species)}마리"),
             ("가지고 있는 수", $"{mine.Count}마리"),
             ("최고 쿠옹력", best > 0 ? best.ToString() : "-"),
             ("처음 만난 날", first != long.MaxValue ? new DateTime(first).ToString("yyyy.MM.dd") : "-"),
-            ("1마리당 경험치", $"+{t.points} XP"),
         };
+        if (t != null)
+            rows.Add(("1마리당 경험치", $"+{t.points} XP"));
+        if (tier == "star")
+            rows.Add(("사는 곳", "캠퍼스 랜드마크 근처에서만 나와요"));
+        return rows;
     }
 
-    void ItemCell(ItemCatalog.Item item, int count)
+    void ItemCell(RectTransform parent, ItemCatalog.Item item, int count)
     {
-        Button b = InvisibleButton(grid, item.id, () => ShowList(item.name, new List<(string, string)>
+        Button b = InvisibleButton(parent, item.id, () => ShowList(item.name, new List<(string, string)>
         {
             ("가지고 있는 수", $"{count}개"),
             (item.description, ""),
@@ -599,10 +655,11 @@ public class KhuMenus : MonoBehaviour
     {
         detailTarget = c;
         CollectibleType t = TypeOf(c.typeId);
-        detailThumb.texture = ThumbOf(t);
+        detailThumb.texture = ThumbOf(c.speciesId);
         detailCp.text = $"<size=40>쿠옹력</size> {c.cp}";
         detailName.text = NameOf(c);
-        detailInfo.text = $"잡은 날짜  {c.CaughtAt:yyyy.MM.dd HH:mm}\n{(t != null ? $"1마리당 +{t.points} XP" : "")}";
+        string xp = t != null ? $"  ·  1마리당 +{t.points} XP" : "";
+        detailInfo.text = $"{CreatureLibrary.TierLabel(c.typeId)}{xp}\n잡은 날짜  {c.CaughtAt:yyyy.MM.dd HH:mm}";
         bool isPartner = c.uid == progress.partnerUid;
         detailPartner.text = isPartner ? "♥ 지금 함께 다니는 파트너예요" : "";
         detailPartnerButton.interactable = !isPartner;
@@ -618,7 +675,7 @@ public class KhuMenus : MonoBehaviour
         progress.SetPartner(detailTarget.uid);
         progress.Save();
         RefreshBuddy();
-        hud?.Toast($"{NameOf(detailTarget)}(쿠옹력 {detailTarget.cp})와 함께 다녀요!");
+        hud?.Toast($"{NameOf(detailTarget)}(쿠옹력 {detailTarget.cp}){CatchCameraScreen.Josa(NameOf(detailTarget), "과", "와")} 함께 다녀요!");
         OpenDetail(detailTarget);
         FillCollection();
     }
@@ -628,11 +685,10 @@ public class KhuMenus : MonoBehaviour
         if (buddy == null || progress == null)
             return;
         GameProgress.Caught p = progress.Partner;
-        CollectibleType t = p != null ? TypeOf(p.typeId) : null;
-        if (t == null || spawner == null)
+        if (p == null)
             buddy.Hide();
         else
-            buddy.Show(t, spawner.GetMaterial(t));
+            buddy.Show(p.speciesId);
     }
 
     // ---------- 목록 팝업 (역대 파트너, 모험노트, 도감·도구 정보) ----------
@@ -1128,18 +1184,18 @@ public class KhuMenus : MonoBehaviour
 
     CollectibleType TypeOf(string id) => spawner != null ? spawner.TypeOf(id) : null;
 
-    string NameOf(GameProgress.Caught c) => TypeOf(c.typeId)?.displayName ?? c.typeId;
+    static string NameOf(GameProgress.Caught c) => string.IsNullOrEmpty(c.speciesId) ? "경희몬" : CreatureLibrary.NameOf(c.speciesId);
 
-    Texture ThumbOf(CollectibleType t) => t != null && spawner != null ? MonsterThumbnails.Get(t, spawner.GetMaterial(t)) : null;
+    static Texture ThumbOf(string species) => MonsterThumbnails.Get(species);
 
-    void Thumb(Transform cell, CollectibleType t, bool known, float size, Vector2 pos)
+    void Thumb(Transform cell, string species, bool known, float size, Vector2 pos)
     {
         var raw = new GameObject("Thumb", typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
         raw.transform.SetParent(cell, false);
         raw.raycastTarget = false;
-        raw.texture = ThumbOf(t);
-        // 못 만난 종류는 검은 그림자로
-        raw.color = known ? Color.white : new Color(0.1f, 0.16f, 0.18f, 0.55f);
+        raw.texture = ThumbOf(species);
+        // 못 만난 동물은 실루엣(그림자)만 보인다
+        raw.color = known ? Color.white : new Color(0.12f, 0.17f, 0.19f, 0.8f);
         RectTransform rt = raw.rectTransform;
         rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
         rt.pivot = new Vector2(0.5f, 0.5f);
@@ -1269,6 +1325,18 @@ public class KhuMenus : MonoBehaviour
         var o = t.gameObject.AddComponent<Outline>();
         o.effectColor = new Color(0f, 0f, 0.15f, 0.35f);
         o.effectDistance = new Vector2(2f, -2f);
+    }
+
+    /// <summary>"체육대학관 아기 사자"처럼 긴 이름은 한 줄에 들어가도록 글자를 줄인다.</summary>
+    static void FitOneLine(Text t, int maxSize)
+    {
+        t.horizontalOverflow = HorizontalWrapMode.Wrap;
+        t.verticalOverflow = VerticalWrapMode.Truncate;
+        t.resizeTextForBestFit = true;
+        t.resizeTextMinSize = 20;
+        t.resizeTextMaxSize = maxSize;
+        t.rectTransform.offsetMin = new Vector2(10f, t.rectTransform.offsetMin.y);
+        t.rectTransform.offsetMax = new Vector2(-10f, t.rectTransform.offsetMax.y);
     }
 
     static Text T(Transform parent, string text, int size, TextAnchor anchor, Color color, bool bold = false)
